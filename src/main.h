@@ -54,7 +54,7 @@
 /*
  * memory sector do stm32f40x acaba no sector 11
 #if defined (USE_STM324xG_EVAL)*/
-#define FLASH_USER_END_ADDR     ADDR_FLASH_SECTOR_11   /* End @ of user Flash area */
+#define FLASH_USER_END_ADDR     ADDR_FLASH_SECTOR_4   /* End @ of user Flash area */
 
 //#else /* USE_STM324x7I_EVAL*/
 //#define FLASH_USER_END_ADDR     ADDR_FLASH_SECTOR_23   /* End @ of user Flash area */
@@ -89,7 +89,7 @@
 #define ADDR_FLASH_SECTOR_23     ((uint32_t)0x081E0000) /* Base @ of Sector 23, 128 Kbytes */
 #endif /* USE_STM324x7I_EVAL */
 
-#define DATA_32                 ((uint32_t)0x12345678)
+#define DATA_32                 ((uint32_t)0x00000001)
 
 /* Exported macro ------------------------------------------------------------*/
 /* Exported functions ------------------------------------------------------- */

@@ -69,15 +69,23 @@ int main(void)
   *  E.g.  SCB->VTOR = 0x20000000;  
   */
 
-  /* TODO - Add your application code here */
-
   /* Initialize LEDs */
   STM_EVAL_LEDInit(LED3);
   STM_EVAL_LEDInit(LED4);
   STM_EVAL_LEDInit(LED5);
   STM_EVAL_LEDInit(LED6);
 
+  /* Initialize User Button*/
+  STM_EVAL_PBInit(BUTTON_USER, BUTTON_MODE_GPIO);
+
+  /* Enable the flash control register access */
   FLASH_Unlock();
+
+  /* Erase the user Flash area ************************************************/
+  /* area defined by FLASH_USER_START_ADDR and FLASH_USER_END_ADDR */
+
+  /* Clear pending flags (if any) */
+
   FLASH_ClearFlag(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
                     FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR|FLASH_FLAG_PGSERR);
 
@@ -115,7 +123,7 @@ int main(void)
 
     uwAddress = FLASH_USER_START_ADDR;
 
-    while (uwAddress < FLASH_USER_END_ADDR)
+    while (uwAddress <= FLASH_USER_END_ADDR)
     {
       if (FLASH_ProgramWord(uwAddress, DATA_32) == FLASH_COMPLETE)
       {
@@ -142,7 +150,7 @@ int main(void)
     uwAddress = FLASH_USER_START_ADDR;
     uwMemoryProgramStatus = 0;
 
-    while (uwAddress < FLASH_USER_END_ADDR)
+    while (uwAddress <= FLASH_USER_END_ADDR)
     {
       uwData32 = *(__IO uint32_t*)uwAddress;
 
@@ -180,6 +188,10 @@ int main(void)
   /* Infinite loop */
   while (1)
   {
+	if(GPIO_ReadInputDataBit(GPIOA, GPIO_Pin_0)){
+		STM_EVAL_LEDToggle(LED3);
+
+	}
 	i++;
   }
 }
