@@ -55,8 +55,10 @@ __IO uint32_t uwMemoryProgramStatus = 0;
 
 static uint32_t GetSector(uint32_t Address);
 
-void WriteFlash(uint32_t FLASH_SECTOR, uint32_t data);
-int CheckData(uint32_t FLASH_SECTOR, uint32_t data);
+uint32_t WriteFlash(uint32_t FLASH_SECTOR, uint32_t NEXT_FLASH_SECTOR, uint32_t data);
+int CheckData(uint32_t FLASH_SECTOR, uint32_t address, uint32_t data);
+uint32_t ReadMemoryAddress(uint32_t FLASH_SECTOR, uint32_t address);
+int CheckDeleteFlag(uint32_t FLASH_SECTOR, uint32_t address);
 
 int main(void)
 {
@@ -84,6 +86,8 @@ int main(void)
   /*We will only use one sector of flash memory - sector 3*/
   uint32_t FLASH_SECTOR;
   FLASH_SECTOR = ADDR_FLASH_SECTOR_3;
+  uint32_t NEXT_FLASH_SECTOR;
+  NEXT_FLASH_SECTOR = ADDR_FLASH_SECTOR_4;
 
   uint32_t DATA_32;
   DATA_32 = 0x00000000;
@@ -92,11 +96,12 @@ int main(void)
   {
 	  STM_EVAL_LEDOn(LED4);
 	  STM_EVAL_LEDOn(LED6);
-	  WriteFlash(FLASH_SECTOR, DATA_32);
+	  WriteFlash(FLASH_SECTOR, NEXT_FLASH_SECTOR, DATA_32);
   }
 
   //WriteFlash(FLASH_SECTOR, DATA_32);
-  CheckData(FLASH_SECTOR, DATA_32);
+  CheckData(FLASH_SECTOR, 0x00000000, DATA_32);
+  uint32_t address = 0x00000000;
 
   while (1)
   {
@@ -104,17 +109,23 @@ int main(void)
 	{
 		DATA_32 += 0x00000001;
 		if(DATA_32==0x00000005) DATA_32 = 0x00000001;
-
-		WriteFlash(FLASH_SECTOR, DATA_32);
+		address = WriteFlash(FLASH_SECTOR, NEXT_FLASH_SECTOR, DATA_32);
 	}
-	if(CheckData(FLASH_SECTOR, 0x00000001))
+	if(CheckData(FLASH_SECTOR, 0x00000000, 0x80000001))
+	{
+			STM_EVAL_LEDOn(LED3);
+			STM_EVAL_LEDOn(LED4);
+			STM_EVAL_LEDOn(LED5);
+			STM_EVAL_LEDOn(LED6);
+	}
+	else if(CheckData(FLASH_SECTOR, address, 0x80000002))
 	{
 		STM_EVAL_LEDOn(LED3);
 		STM_EVAL_LEDOff(LED4);
 		STM_EVAL_LEDOff(LED5);
 		STM_EVAL_LEDOff(LED6);
 	}
-	else if(CheckData(FLASH_SECTOR, 0x00000002))
+	else if(CheckData(FLASH_SECTOR, address, 0x80000003))
 	{
 		STM_EVAL_LEDOff(LED3);
 		STM_EVAL_LEDOn(LED4);
@@ -122,7 +133,7 @@ int main(void)
 		STM_EVAL_LEDOff(LED6);
 
 	}
-	else if(CheckData(FLASH_SECTOR, 0x00000003))
+	else if(CheckData(FLASH_SECTOR, address, 0x80000004))
 	{
 		STM_EVAL_LEDOff(LED3);
 		STM_EVAL_LEDOff(LED4);
@@ -145,8 +156,14 @@ int main(void)
   }
 }
 
-void WriteFlash(uint32_t FLASH_SECTOR, uint32_t data)
+uint32_t WriteFlash(uint32_t FLASH_SECTOR, uint32_t NEXT_FLASH_SECTOR, uint32_t data)
 {
+  uint32_t address = FLASH_SECTOR;
+
+  uint32_t id_value;
+  id_value = (uint32_t)0x80000000 | data;
+
+  uint32_t saved_value;
   /* Enable the flash control register access */
   FLASH_Unlock();
 
@@ -157,79 +174,103 @@ void WriteFlash(uint32_t FLASH_SECTOR, uint32_t data)
   FLASH_ClearFlag(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
 					FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR|FLASH_FLAG_PGSERR);
 
-  uwStartSector = GetSector(FLASH_SECTOR);
-  uwEndSector = GetSector(FLASH_SECTOR);
-
-  /* Start the erase operation */
-  uwSectorCounter = uwStartSector;
-  while (uwSectorCounter <= uwEndSector)
-  {
-	/* Device voltage range supposed to be [2.7V to 3.6V], the operation will
-	   be done by word */
-	if (FLASH_EraseSector(uwSectorCounter, VoltageRange_3) != FLASH_COMPLETE)
-	{
-	  /* Error occurred while sector erase.
-		 User can add here some code to deal with this error  */
-	  while (1)
-	  {
-	  }
-	}
-	/* jump to the next sector */
-	if (uwSectorCounter == FLASH_Sector_11)
-	{
-	  uwSectorCounter += 40;
-	}
-	else
-	{
-	  uwSectorCounter += 8;
-	}
-  }
+  //uwStartSector = GetSector(FLASH_SECTOR);
+  //uwEndSector = GetSector(FLASH_SECTOR);
 
   /* Program the user Flash area word by word ********************************/
   /* area defined by FLASH_SECTOR - only one sector being acted upon*/
-
+  /*
+   * What I must do here is: run through the addresses of the flash sector and find the first one with a
+   * 0x1XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX (it is a 32bit word), since i'm looking at the first address,
+   * search for a 0x1XXXXXXX. If it is true, then write it as zero and jump to the next usable address
+   * (address += 4). There, write 0x8000XXXX (which is the new id).
+   *
+   * */
   uwAddress = FLASH_SECTOR;
+  uint32_t FLASH_SECTOR_LIMIT = NEXT_FLASH_SECTOR - 4 ;
 
-  while (uwAddress <= FLASH_SECTOR)
+  do
   {
-	if (FLASH_ProgramWord(uwAddress, data) == FLASH_COMPLETE)
+	saved_value = (uint32_t)ReadMemoryAddress(FLASH_SECTOR, uwAddress);
+	if (uwAddress >= FLASH_SECTOR_LIMIT)
 	{
-	  uwAddress = uwAddress + 4;
+		uwAddress = FLASH_SECTOR;
+	    /* Start the erase operation */
+	    /* Only writing on one sector of the flash, so, only need to erase that sector*/
+	    /* Only gonna erase one time every 1k write operations - only gonna erase if the last address is occupied*/
+		/* Device voltage range supposed to be [2.7V to 3.6V], the operation will
+		   be done by word */
+		if (FLASH_EraseSector(uwSectorCounter, VoltageRange_3) != FLASH_COMPLETE)
+		{
+		  /* Error occurred while sector erase.
+			 User can add here some code to deal with this error  */
+		  while (1)
+		  {
+		  }
+		}
 	}
 	else
 	{
-	  /* Error occurred while writing data in Flash memory.
-		 User can add here some code to deal with this error */
-	  while (1)
-	  {
-	  }
+		if(saved_value>>31)
+		{
+			if (FLASH_ProgramWord(uwAddress, 0x00000000) == FLASH_COMPLETE)
+			{
+			}
+			else
+			{
+			  /* Error occurred while writing data in Flash memory.
+				 User can add here some code to deal with this error */
+			  while (1)
+			  {
+			  }
+			}
+			uwAddress += 4;
+			if (FLASH_ProgramWord(uwAddress, id_value) == FLASH_COMPLETE)
+			{
+			}
+			else
+			{
+			  /* Error occurred while writing data in Flash memory.
+				 User can add here some code to deal with this error */
+			  while (1)
+			  {
+			  }
+			}
+		}
+		else
+		{
+			uwAddress +=4 ;
+		}
 	}
-  }
+  } while(!(saved_value>>31));
 
   /* Lock the Flash to disable the flash control register access (recommended
 	 to protect the FLASH memory against possible unwanted operation) */
   FLASH_Lock();
+  return address;
 }
 
 /* Check if the programmed data is OK ***************************************/
 /*  MemoryProgramStatus = 0: data programmed correctly
     MemoryProgramStatus != 0: number of words not programmed correctly */
-int CheckData(uint32_t FLASH_SECTOR, uint32_t data)
+int CheckData(uint32_t FLASH_SECTOR, uint32_t address, uint32_t data)
 {
-  uwAddress = FLASH_SECTOR;
+  uwAddress = FLASH_SECTOR + address;
   uwMemoryProgramStatus = 0;
 
-  while (uwAddress <= FLASH_SECTOR)
-  {
+  //while (uwAddress <= FLASH_SECTOR)
+  //{
     uwData32 = *(__IO uint32_t*)uwAddress;
+
+    return uwData32;
 
     if (uwData32 != data)
     {
       uwMemoryProgramStatus++;
     }
 
-    uwAddress = uwAddress + 4;
-  }
+    //uwAddress = uwAddress + 4;
+  //}
 
   /* Check Data correctness */
   if(uwMemoryProgramStatus)
@@ -249,6 +290,14 @@ int CheckData(uint32_t FLASH_SECTOR, uint32_t data)
   }
 }
 
+uint32_t ReadMemoryAddress(uint32_t FLASH_SECTOR, uint32_t address)
+{
+  uwAddress = address;
+
+  uwData32 = *(__IO uint32_t*)uwAddress;
+
+  return uwData32;
+}
 
 /**
   * @brief  Gets the sector of a given address
