@@ -31,6 +31,7 @@ SOFTWARE.
 #include "stm32f4xx.h"
 #include "stm32f4_discovery.h"
 #include "main.h"
+#include <stdlib.h>
 
 /* Private macro */
 /* Private variables */
